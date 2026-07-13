@@ -1,0 +1,69 @@
+@startuml
+skinparam dpi 150
+skinparam defaultFontName "DejaVu Sans"
+skinparam shadowing false
+skinparam ActivityBackgroundColor #EAF2FB
+skinparam ActivityBorderColor #2C6FB5
+skinparam ActivityBorderThickness 1.3
+skinparam ActivityDiamondBackgroundColor #FEF6E0
+skinparam ActivityDiamondBorderColor #D9A300
+skinparam ActivityDiamondFontStyle bold
+skinparam NoteBackgroundColor #FFFBE9
+skinparam NoteBorderColor #E8D48A
+title OrchestrPay — процесс обработки платежа (Saga / BPMN, PlantUML)
+
+start
+:Создать платёж\n(CREATE_PAYMENT);
+:Списать средства\n(DEBIT_FUNDS);
+
+if (Списание успешно?) then (нет)
+  :Отменить платёж\n(CANCEL_PAYMENT); <<#FDECEA>>
+  end
+else (да)
+endif
+
+:Антифрод-проверка\n(FRAUD_CHECK);
+note right
+  cut-off: если проверка не ответила
+  в срок — платёж по умолчанию
+  считается разрешённым
+end note
+
+if (Ответ антифрода?) then (ALLOW)
+  :Перевод контрагенту\n(TRANSFER)  «PIVOT»; <<#E7F6EC>>
+  :Уведомить клиента (успех);
+  stop
+
+elseif (MANUAL) then
+  :Ручная проверка (оператор);
+  note right
+    ожидание решения ≤ 20 мин;
+    по истечении cut-off →
+    считается разрешённым
+  end note
+  if (Решение оператора?) then (разрешено)
+    :Перевод контрагенту\n(TRANSFER)  «PIVOT»; <<#E7F6EC>>
+    :Уведомить клиента (успех);
+    stop
+  else (запрет)
+    :Вернуть средства\n(REFUND_FUNDS)  [компенсация]; <<#FDECEA>>
+    fork
+      :Уведомить клиента (возврат);
+    fork again
+      :Уведомить безопасность;
+    end fork
+    :Платёж отклонён / возвращён; <<#FDECEA>>
+    end
+  endif
+
+else (DENY)
+  :Вернуть средства\n(REFUND_FUNDS)  [компенсация]; <<#FDECEA>>
+  fork
+    :Уведомить клиента (возврат);
+  fork again
+    :Уведомить безопасность;
+  end fork
+  :Платёж отклонён / возвращён; <<#FDECEA>>
+  end
+endif
+@enduml

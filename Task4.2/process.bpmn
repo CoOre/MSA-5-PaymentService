@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+                  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                  id="Definitions_PaymentSaga"
+                  targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="payment-process" name="OrchestrPay Payment Saga" isExecutable="true">
+
+    <bpmn:startEvent id="StartEvent" name="Платёж инициирован">
+      <bpmn:outgoing>f_start_create</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:serviceTask id="CreatePayment" name="Создать платёж (CREATE_PAYMENT)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="create-payment" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>f_start_create</bpmn:incoming>
+      <bpmn:outgoing>f_create_debit</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="DebitFunds" name="Списать средства (DEBIT_FUNDS)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="debit-funds" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>f_create_debit</bpmn:incoming>
+      <bpmn:outgoing>f_debit_fraud</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="FraudCheck" name="Антифрод-проверка (FRAUD_CHECK)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="fraud-check" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>f_debit_fraud</bpmn:incoming>
+      <bpmn:outgoing>f_fraud_gw</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="GwFraud" name="Ответ антифрода" default="f_fraud_allow">
+      <bpmn:incoming>f_fraud_gw</bpmn:incoming>
+      <bpmn:outgoing>f_fraud_allow</bpmn:outgoing>
+      <bpmn:outgoing>f_fraud_deny</bpmn:outgoing>
+      <bpmn:outgoing>f_fraud_manual</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="ManualReview" name="Ручная проверка (оператор)">
+      <bpmn:incoming>f_fraud_manual</bpmn:incoming>
+      <bpmn:outgoing>f_manual_gw</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:exclusiveGateway id="GwManual" name="Решение оператора" default="f_manual_approved">
+      <bpmn:incoming>f_manual_gw</bpmn:incoming>
+      <bpmn:outgoing>f_manual_approved</bpmn:outgoing>
+      <bpmn:outgoing>f_manual_rejected</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:serviceTask id="TransferFunds" name="Перевод контрагенту (TRANSFER) - PIVOT">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="transfer-funds" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>f_fraud_allow</bpmn:incoming>
+      <bpmn:incoming>f_manual_approved</bpmn:incoming>
+      <bpmn:outgoing>f_transfer_notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="NotifyClientSuccess" name="Уведомить клиента (успех)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="notify-client" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>f_transfer_notify</bpmn:incoming>
+      <bpmn:outgoing>f_notify_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="EndSuccess" name="Платёж завершён">
+      <bpmn:incoming>f_notify_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:serviceTask id="RefundFunds" name="Вернуть средства (REFUND_FUNDS)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="refund-funds" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>f_fraud_deny</bpmn:incoming>
+      <bpmn:incoming>f_manual_rejected</bpmn:incoming>
+      <bpmn:outgoing>f_refund_sec</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="NotifySecurity" name="Уведомить безопасность">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="notify-security" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>f_refund_sec</bpmn:incoming>
+      <bpmn:outgoing>f_sec_notify</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:serviceTask id="NotifyClientRefund" name="Уведомить клиента (возврат)">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="notify-client" />
+      </bpmn:extensionElements>
+      <bpmn:incoming>f_sec_notify</bpmn:incoming>
+      <bpmn:outgoing>f_refund_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="EndRefund" name="Платёж отклонён / возвращён">
+      <bpmn:incoming>f_refund_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="f_start_create" sourceRef="StartEvent" targetRef="CreatePayment" />
+    <bpmn:sequenceFlow id="f_create_debit" sourceRef="CreatePayment" targetRef="DebitFunds" />
+    <bpmn:sequenceFlow id="f_debit_fraud" sourceRef="DebitFunds" targetRef="FraudCheck" />
+    <bpmn:sequenceFlow id="f_fraud_gw" sourceRef="FraudCheck" targetRef="GwFraud" />
+    <bpmn:sequenceFlow id="f_fraud_allow" name="ALLOW" sourceRef="GwFraud" targetRef="TransferFunds" />
+    <bpmn:sequenceFlow id="f_fraud_deny" name="DENY" sourceRef="GwFraud" targetRef="RefundFunds">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=fraudResult = "DENY"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_fraud_manual" name="MANUAL" sourceRef="GwFraud" targetRef="ManualReview">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=fraudResult = "MANUAL"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_manual_gw" sourceRef="ManualReview" targetRef="GwManual" />
+    <bpmn:sequenceFlow id="f_manual_approved" name="разрешено" sourceRef="GwManual" targetRef="TransferFunds" />
+    <bpmn:sequenceFlow id="f_manual_rejected" name="запрет" sourceRef="GwManual" targetRef="RefundFunds">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">=manualDecision = "REJECTED"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="f_transfer_notify" sourceRef="TransferFunds" targetRef="NotifyClientSuccess" />
+    <bpmn:sequenceFlow id="f_notify_end" sourceRef="NotifyClientSuccess" targetRef="EndSuccess" />
+    <bpmn:sequenceFlow id="f_refund_sec" sourceRef="RefundFunds" targetRef="NotifySecurity" />
+    <bpmn:sequenceFlow id="f_sec_notify" sourceRef="NotifySecurity" targetRef="NotifyClientRefund" />
+    <bpmn:sequenceFlow id="f_refund_end" sourceRef="NotifyClientRefund" targetRef="EndRefund" />
+
+  </bpmn:process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_1">
+    <bpmndi:BPMNPlane id="BPMNPlane_1" bpmnElement="payment-process">
+
+      <bpmndi:BPMNShape id="StartEvent_di" bpmnElement="StartEvent">
+        <dc:Bounds x="150" y="182" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="128" y="225" width="82" height="27" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="CreatePayment_di" bpmnElement="CreatePayment">
+        <dc:Bounds x="230" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DebitFunds_di" bpmnElement="DebitFunds">
+        <dc:Bounds x="390" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="FraudCheck_di" bpmnElement="FraudCheck">
+        <dc:Bounds x="550" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="GwFraud_di" bpmnElement="GwFraud" isMarkerVisible="true">
+        <dc:Bounds x="720" y="175" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="712" y="145" width="66" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="ManualReview_di" bpmnElement="ManualReview">
+        <dc:Bounds x="695" y="320" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="GwManual_di" bpmnElement="GwManual" isMarkerVisible="true">
+        <dc:Bounds x="720" y="475" width="50" height="50" />
+        <bpmndi:BPMNLabel><dc:Bounds x="708" y="532" width="74" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="TransferFunds_di" bpmnElement="TransferFunds">
+        <dc:Bounds x="840" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NotifyClientSuccess_di" bpmnElement="NotifyClientSuccess">
+        <dc:Bounds x="1000" y="160" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndSuccess_di" bpmnElement="EndSuccess">
+        <dc:Bounds x="1170" y="182" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1150" y="225" width="78" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="RefundFunds_di" bpmnElement="RefundFunds">
+        <dc:Bounds x="840" y="460" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NotifySecurity_di" bpmnElement="NotifySecurity">
+        <dc:Bounds x="1000" y="460" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NotifyClientRefund_di" bpmnElement="NotifyClientRefund">
+        <dc:Bounds x="1160" y="460" width="100" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndRefund_di" bpmnElement="EndRefund">
+        <dc:Bounds x="1330" y="482" width="36" height="36" />
+        <bpmndi:BPMNLabel><dc:Bounds x="1306" y="525" width="86" height="27" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+
+      <bpmndi:BPMNEdge id="f_start_create_di" bpmnElement="f_start_create">
+        <di:waypoint x="186" y="200" /><di:waypoint x="230" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_create_debit_di" bpmnElement="f_create_debit">
+        <di:waypoint x="330" y="200" /><di:waypoint x="390" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_debit_fraud_di" bpmnElement="f_debit_fraud">
+        <di:waypoint x="490" y="200" /><di:waypoint x="550" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_fraud_gw_di" bpmnElement="f_fraud_gw">
+        <di:waypoint x="650" y="200" /><di:waypoint x="720" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_fraud_allow_di" bpmnElement="f_fraud_allow">
+        <di:waypoint x="770" y="200" /><di:waypoint x="840" y="200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="784" y="182" width="42" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_fraud_manual_di" bpmnElement="f_fraud_manual">
+        <di:waypoint x="745" y="225" /><di:waypoint x="745" y="320" />
+        <bpmndi:BPMNLabel><dc:Bounds x="750" y="260" width="52" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_fraud_deny_di" bpmnElement="f_fraud_deny">
+        <di:waypoint x="745" y="225" /><di:waypoint x="745" y="260" /><di:waypoint x="890" y="260" /><di:waypoint x="890" y="460" />
+        <bpmndi:BPMNLabel><dc:Bounds x="800" y="242" width="34" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_manual_gw_di" bpmnElement="f_manual_gw">
+        <di:waypoint x="745" y="400" /><di:waypoint x="745" y="475" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_manual_approved_di" bpmnElement="f_manual_approved">
+        <di:waypoint x="770" y="500" /><di:waypoint x="810" y="500" /><di:waypoint x="810" y="200" /><di:waypoint x="840" y="200" />
+        <bpmndi:BPMNLabel><dc:Bounds x="815" y="300" width="60" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_manual_rejected_di" bpmnElement="f_manual_rejected">
+        <di:waypoint x="745" y="525" /><di:waypoint x="745" y="560" /><di:waypoint x="890" y="560" /><di:waypoint x="890" y="540" />
+        <bpmndi:BPMNLabel><dc:Bounds x="800" y="562" width="42" height="14" /></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_transfer_notify_di" bpmnElement="f_transfer_notify">
+        <di:waypoint x="940" y="200" /><di:waypoint x="1000" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_notify_end_di" bpmnElement="f_notify_end">
+        <di:waypoint x="1100" y="200" /><di:waypoint x="1170" y="200" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_refund_sec_di" bpmnElement="f_refund_sec">
+        <di:waypoint x="940" y="500" /><di:waypoint x="1000" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_sec_notify_di" bpmnElement="f_sec_notify">
+        <di:waypoint x="1100" y="500" /><di:waypoint x="1160" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="f_refund_end_di" bpmnElement="f_refund_end">
+        <di:waypoint x="1260" y="500" /><di:waypoint x="1330" y="500" />
+      </bpmndi:BPMNEdge>
+
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

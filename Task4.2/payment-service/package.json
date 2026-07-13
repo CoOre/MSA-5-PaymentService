@@ -1,0 +1,12 @@
+{
+  "name": "orchestrpay-payment-service",
+  "version": "1.0.0",
+  "description": "OrchestrPay payment saga workers for Camunda 8 (Zeebe)",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "zeebe-node": "^8.3.2"
+  }
+}
