@@ -8,3 +8,7 @@
 | `Task1` | Реестр транзакций Saga — `saga-transactions.md` |
 | `Task2` | Таблица переходов State Machine — `state-machine.md` |
 | `Task3` | ADR по размещению оркестратора — `ADR-001-orchestrator-location.md` |
+| `Task4.1` | BPMN-диаграмма процесса — `payment-process-bpmn.png` |
+| `Task4.2` | Прототип на Camunda 8: код, docker-compose, скриншоты |
+| `Task5` | Тест-кейсы — `test-cases.md` |
+| `Task6` | Fitness-функции — `fitness-functions.md` |
